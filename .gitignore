@@ -1,0 +1,6 @@
+images/*
+valgrind.txt
+*.o
+*.dSYM
+fat_test
+dos_scandisk

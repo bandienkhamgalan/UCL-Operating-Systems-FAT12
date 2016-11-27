@@ -1,5 +1,6 @@
 #include "Helpers.h"
 #include <assert.h>
+#include <ctype.h>
 
 void Read12ByteLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16_t* destination, size_t destinationLength)
 {
@@ -33,4 +34,29 @@ void Read12ByteLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16
 		destination[arrayIndex++] = temp;
 		++byteIndex;
 	}
+}
+
+void CopyUntilFirstSpace(char* source, size_t sourceLength, char* destination)
+{
+	size_t index = 0;
+	for( ; index < sourceLength ; ++index)
+	{
+		char character = source[index];
+		if(isspace(character))
+			break;
+		destination[index] = character;
+	}
+	destination[index] = '\0';
+}
+
+long NumberFrom8ByteLittleEndianSequence(uint8_t* source, size_t sourceLength)
+{
+	long toReturn = 0;
+	uint8_t* current = source + (sourceLength - 1);
+	for(size_t index = 0 ; index < sourceLength ; ++index)
+	{
+		toReturn = toReturn << 8 | *current;
+		--current;
+	}
+	return toReturn;
 }

@@ -18,8 +18,13 @@ FATImage* FATImage_Make()
 
 	new->fileChains = calloc(16, sizeof(IndexChain));
 	assert(new->fileChains != NULL);
-	new->fileChainsCapacity = 8;
+	new->fileChainsCapacity = 16;
 	new->fileChainsLength = 0;
+
+	new->directoryEntries = calloc(16, sizeof(DirectoryEntry));
+	assert(new->directoryEntries != NULL);
+	new->directoryEntriesCapacity = 16;
+	new->directoryEntriesLength = 0;
 
 	return new;
 }
@@ -64,10 +69,18 @@ void FATImage_Free(FATImage* toFree)
 	assert(toFree != NULL);
 	munmap(toFree->image, toFree->imageSize);	
 	close(toFree->imageFileDescriptor);
+
 	for(size_t index = 0 ; index < toFree->fileChainsLength ; ++index)
 		IndexChain_FreeNodes(toFree->fileChains + index);
-	
 	free(toFree->fileChains);
+
+	for(size_t index = 0 ; index < toFree->directoryEntriesLength ; ++index)
+	{
+		free(toFree->directoryEntries[index].filename);
+		free(toFree->directoryEntries[index].extension);
+	}
+	free(toFree->directoryEntries);
+	
 	free(toFree->clusters);
 	free(toFree);
 }
@@ -75,14 +88,7 @@ void FATImage_Free(FATImage* toFree)
 long FATImage_ReadLittleEndian(FATImage* disk, size_t sector, size_t offset, size_t length)
 {
 	assert(disk != NULL);
-	long toReturn = 0;
-	uint8_t* end = &(disk->image[sector * disk->information.sectorSize + offset + length - 1]);
-	for(size_t index = 0 ; index < length ; ++index)
-	{
-		toReturn = toReturn << 8 | *end;
-		--end;
-	}
-	return toReturn;
+	return NumberFrom8ByteLittleEndianSequence(&(disk->image[sector * disk->information.sectorSize + offset]), length);
 }
 
 void FATImage_UpdateDiskInformation(FATImage* disk)
@@ -114,6 +120,7 @@ IndexChain* FATImage_GetNewFileChain(FATImage* disk)
 	{
 		// realloc
 		disk->fileChains = realloc(disk->fileChains, 2 * disk->fileChainsCapacity * sizeof(IndexChain));
+		assert(disk->fileChains != NULL);
 		memset(disk->fileChains + disk->fileChainsCapacity, 0, disk->fileChainsCapacity * sizeof(IndexChain) / sizeof(unsigned char));
 		disk->fileChainsCapacity *= 2;
 	}
@@ -198,9 +205,100 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 	}
 }
 
+DirectoryEntry* FATImage_GetNewDirectoryEntry(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->directoryEntries != NULL);
+	
+	if(disk->directoryEntriesLength >= disk->directoryEntriesCapacity)
+	{
+		// realloc
+		disk->directoryEntries = realloc(disk->directoryEntries, 2 * disk->directoryEntriesCapacity * sizeof(DirectoryEntry));
+		assert(disk->directoryEntries != NULL);
+		memset(disk->directoryEntries + disk->directoryEntriesCapacity, 0, disk->directoryEntriesCapacity * sizeof(DirectoryEntry) / sizeof(unsigned char));
+		disk->directoryEntriesCapacity *= 2;
+	}
+
+	disk->directoryEntriesLength += 1;
+	return disk->directoryEntries + (disk->directoryEntriesLength - 1);
+}
+
+DirectoryEntry* FATImage_InitializeNewDirectoryEntry(FATImage* disk, uint8_t* directoryEntry, size_t directoryEntrySize)
+{
+	assert(disk != NULL);
+	assert(disk->directoryEntries != NULL);
+	assert(directoryEntrySize == 32);
+
+	DirectoryEntry* entry = FATImage_GetNewDirectoryEntry(disk);
+
+	entry->filename = calloc(8, sizeof(char));
+	assert(entry->filename != NULL);
+	CopyUntilFirstSpace((char*)directoryEntry + 1, 7, entry->filename);
+
+	entry->extension = calloc(4, sizeof(char));
+	assert(entry->extension != NULL);
+	CopyUntilFirstSpace((char*)directoryEntry + 8, 3, entry->extension);
+
+	entry->attributes = directoryEntry[11];
+	entry->startCluster = NumberFrom8ByteLittleEndianSequence(directoryEntry + 26, 2);
+	entry->fileSize = NumberFrom8ByteLittleEndianSequence(directoryEntry + 28, 4);
+	
+	return entry;
+}
+
+void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, DirectoryEntry* parent)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);	
+
+	size_t sectorSize = disk->information.sectorSize;
+	size_t directoryEntrySize = 32;
+	size_t directoryEntryCount = sectorSize / directoryEntrySize;
+	for(size_t index = 0 ; index < directoryEntryCount ; ++index) 
+	{
+		uint8_t* rawDirectoryEntry = &(disk->image[sectorSize * sector + index * directoryEntrySize]);
+		uint8_t firstByte = rawDirectoryEntry[0];
+		if(firstByte == 0xE5)
+		{
+			// nothing in this directory entry
+			continue;
+		}
+		else if(firstByte == 0x00)
+		{
+			// last directory entry in sector
+			break;
+		}
+		else
+		{
+			char filename[8];
+			CopyUntilFirstSpace((char*)rawDirectoryEntry + 1, 7, filename);
+			DirectoryEntryAttributes attributes = rawDirectoryEntry[11];
+			if(strlen(filename) == 0 || strcmp(filename, ".") == 0 || attributes & VolumeLabel)
+				continue;
+
+
+			DirectoryEntry* entry = FATImage_InitializeNewDirectoryEntry(disk, rawDirectoryEntry, directoryEntrySize);
+			entry->parent = parent;
+			if(entry->attributes & Subdirectory)
+			{
+				printf("following directory %s to %zd = cluster %zd\n", entry->filename, entry->startCluster, disk->information.dataSectorStartSector - 2 + entry->startCluster);
+				FATImage_ReadDirectoryEntries_Internal(disk, disk->information.dataSectorStartSector - 2 + entry->startCluster, entry);
+			}
+			else
+			{
+				printf("found file named %s.%s and file size %zd starting at #%zd\n", entry->filename, entry->extension, entry->fileSize, entry->startCluster);
+			}
+		}
+	}
+}
+
 void FATImage_ReadDirectoryEntries(FATImage* disk)
 {
-	
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);	
+
+	for(size_t index = 0 ; index < disk->information.rootDirectorySectorCount ; ++index)
+		FATImage_ReadDirectoryEntries_Internal(disk, disk->information.rootDirectoryStartSector + index, NULL);
 }
 
 void FATImage_ReadFileAllocationTable(FATImage* disk)

@@ -25,6 +25,23 @@ TEST FATImage_Make_ReturnsZeroedOutStructWithZeroedOutFileChains()
 		ASSERT_EQ(disk->fileChains, NULL);
 	}
 
+	ASSERT_EQ(disk->directoryEntriesLength, 0);
+	if(disk->directoryEntriesCapacity > 0)
+	{
+		for(size_t index = 0 ; index < disk->directoryEntriesCapacity ; ++index)
+		{
+			DirectoryEntry* entry = disk->directoryEntries + index;
+			ASSERT_EQ(entry->parent, NULL);
+			ASSERT_EQ(entry->filename, NULL);
+			ASSERT_EQ(entry->extension, NULL);
+			ASSERT_EQ(entry->attribute, 0);
+			ASSERT_EQ(entry->fileSize, 0);
+			ASSERT_EQ(entry->startCluster, 0);
+		}
+	} else {
+		ASSERT_EQ(disk->directoryEntries, NULL);
+	}
+
 	FATImage_Free(disk);
 	PASS();
 }
@@ -121,6 +138,72 @@ TEST FATImage_GetNewFileChain_GrowsArrayAsNeeded()
 		ASSERT_EQ(chain->head, NULL);
 		ASSERT_EQ(chain->tail, NULL);
 		ASSERT_EQ(chain->length, 0);
+	}
+
+	FATImage_Free(disk);
+	PASS();
+}
+
+DirectoryEntry* FATImage_GetNewDirectoryEntry(FATImage* disk);
+
+TEST FATImage_GetNewDirectoryEntry_ReturnsNewItemAndUpdatesLength()
+{
+	FATImage* disk = FATImage_Make();
+
+	DirectoryEntry* one = FATImage_GetNewDirectoryEntry(disk);
+	one->filename = "one";
+
+	DirectoryEntry* two = FATImage_GetNewDirectoryEntry(disk);
+	two->filename = "two";
+
+	// Check length is updated
+	ASSERT_EQ(disk->directoryEntriesLength, 2);
+
+	// Check if two new/distinct items were actually returned
+	ASSERT_STR_EQ(one->filename, "one");
+	ASSERT_STR_EQ(two->filename, "two");
+
+	// set to NULL to prevent bad free() call
+	one->filename = NULL;
+	two->filename = NULL;
+
+	FATImage_Free(disk);
+	PASS();
+}
+
+TEST FATImage_GetNewDirectoryEntry_GrowsArrayAsNeeded()
+{
+	FATImage* disk = FATImage_Make();
+
+	size_t capacity = disk->directoryEntriesCapacity;
+	for(size_t index = 0 ; index < capacity ; ++index)
+	{
+		DirectoryEntry* entry = FATImage_GetNewDirectoryEntry(disk);
+		entry->fileSize = index;
+	}
+	ASSERT_EQ(disk->directoryEntriesLength, capacity);
+
+
+	DirectoryEntry* entry = FATImage_GetNewDirectoryEntry(disk);
+	entry->fileSize = capacity;
+	ASSERT_EQ(disk->directoryEntriesLength, capacity + 1);
+	ASSERT(disk->directoryEntriesCapacity > capacity); 
+
+	for(size_t index = 0 ; index < disk->directoryEntriesLength ; ++index)
+	{
+		DirectoryEntry* entry = disk->directoryEntries + index;
+		ASSERT_EQ(entry->fileSize, index);
+	}
+
+	for(size_t index = disk->directoryEntriesLength ; index < disk->directoryEntriesCapacity ; ++index)
+	{
+		DirectoryEntry* entry = disk->directoryEntries + index;
+		ASSERT_EQ(entry->parent, NULL);
+		ASSERT_EQ(entry->filename, NULL);
+		ASSERT_EQ(entry->extension, NULL);
+		ASSERT_EQ(entry->attribute, 0);
+		ASSERT_EQ(entry->fileSize, 0);
+		ASSERT_EQ(entry->startCluster, 0);
 	}
 
 	FATImage_Free(disk);
@@ -241,6 +324,8 @@ SUITE(FATImageTest)
 	RUN_TEST(FATImage_UpdateDiskInformation_Success);
 	RUN_TEST(FATImage_GetNewFileChain_ReturnsNewItemAndUpdatesLength);
 	RUN_TEST(FATImage_GetNewFileChain_GrowsArrayAsNeeded);
+	RUN_TEST(FATImage_GetNewDirectoryEntry_ReturnsNewItemAndUpdatesLength);
+	RUN_TEST(FATImage_GetNewDirectoryEntry_GrowsArrayAsNeeded);
 	RUN_TEST(FATImage_ReadClusterIndexSequenceAndCreateFileChains_UnusedBadReserved);
 	RUN_TEST(FATImage_ReadClusterIndexSequenceAndCreateFileChains_FourSeparateFiles);
 	RUN_TEST(FATImage_ReadClusterIndexSequenceAndCreateFileChains_OneBigFile);

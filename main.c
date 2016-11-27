@@ -9,7 +9,7 @@ int main(int argc, char** argv)
 		printf("successfully mapped %zd bytes to fd %d\n", disk->imageSize, disk->imageFileDescriptor);
 		FATImage_UpdateDiskInformation(disk);
 		FATImage_ReadFileAllocationTable(disk);
-		//printf("%zd sectors\n", disk->information.sectorCount);
+		FATImage_ReadDirectoryEntries(disk);
 		FATImage_Free(disk);
 	}
 	else

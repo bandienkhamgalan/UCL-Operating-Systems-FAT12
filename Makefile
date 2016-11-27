@@ -1,7 +1,7 @@
 C := gcc
 CFLAGS := -Wall -Werror -std=c99 -g
 
-Src := IndexChain FATImage Helpers
+Src := ClusterChain FATImage Helpers DirectoryEntry
 Obj := $(addsuffix .o, $(Src))
 
 default: main.o $(Obj)
@@ -16,7 +16,7 @@ clean:
 	@rm -rf test
 	@rm -rf dos_scandisk
 
-test.o: test.c HelpersTest.h FATImageTest.h IndexChainTest.h
+test.o: test.c HelpersTest.h FATImageTest.h ClusterChainTest.h
 	@$(C) $(CFLAGS) -o $@ -c $<
 
 %.o: %.c

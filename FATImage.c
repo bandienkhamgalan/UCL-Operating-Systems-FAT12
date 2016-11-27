@@ -16,10 +16,10 @@ FATImage* FATImage_Make()
 	FATImage* new = calloc(1, sizeof(FATImage));
 	assert(new != NULL);
 
-	new->fileChains = calloc(16, sizeof(IndexChain));
-	assert(new->fileChains != NULL);
-	new->fileChainsCapacity = 16;
-	new->fileChainsLength = 0;
+	new->clusterChains = calloc(16, sizeof(ClusterChain));
+	assert(new->clusterChains != NULL);
+	new->clusterChainsCapacity = 16;
+	new->clusterChainsLength = 0;
 
 	new->directoryEntries = calloc(16, sizeof(DirectoryEntry));
 	assert(new->directoryEntries != NULL);
@@ -70,9 +70,9 @@ void FATImage_Free(FATImage* toFree)
 	munmap(toFree->image, toFree->imageSize);	
 	close(toFree->imageFileDescriptor);
 
-	for(size_t index = 0 ; index < toFree->fileChainsLength ; ++index)
-		IndexChain_FreeNodes(toFree->fileChains + index);
-	free(toFree->fileChains);
+	for(size_t index = 0 ; index < toFree->clusterChainsLength ; ++index)
+		ClusterChain_FreeNodes(toFree->clusterChains + index);
+	free(toFree->clusterChains);
 
 	for(size_t index = 0 ; index < toFree->directoryEntriesLength ; ++index)
 	{
@@ -111,22 +111,22 @@ void FATImage_UpdateDiskInformation(FATImage* disk)
 	info->dataSectorCount = info->sectorCount - info->dataSectorStartSector;
 }
 
-IndexChain* FATImage_GetNewFileChain(FATImage* disk)
+ClusterChain* FATImage_GetNewFileChain(FATImage* disk)
 {
 	assert(disk != NULL);
-	assert(disk->fileChains != NULL);
+	assert(disk->clusterChains != NULL);
 	
-	if(disk->fileChainsLength >= disk->fileChainsCapacity)
+	if(disk->clusterChainsLength >= disk->clusterChainsCapacity)
 	{
 		// realloc
-		disk->fileChains = realloc(disk->fileChains, 2 * disk->fileChainsCapacity * sizeof(IndexChain));
-		assert(disk->fileChains != NULL);
-		memset(disk->fileChains + disk->fileChainsCapacity, 0, disk->fileChainsCapacity * sizeof(IndexChain) / sizeof(unsigned char));
-		disk->fileChainsCapacity *= 2;
+		disk->clusterChains = realloc(disk->clusterChains, 2 * disk->clusterChainsCapacity * sizeof(ClusterChain));
+		assert(disk->clusterChains != NULL);
+		memset(disk->clusterChains + disk->clusterChainsCapacity, 0, disk->clusterChainsCapacity * sizeof(ClusterChain) / sizeof(unsigned char));
+		disk->clusterChainsCapacity *= 2;
 	}
 
-	disk->fileChainsLength += 1;
-	return disk->fileChains + (disk->fileChainsLength - 1);
+	disk->clusterChainsLength += 1;
+	return disk->clusterChains + (disk->clusterChainsLength - 1);
 }
 
 void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
@@ -146,13 +146,13 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 		else
 		{
 			// part of file
-			if(disk->clusters[index].fileChain != NULL)
+			if(disk->clusters[index].clusterChain != NULL)
 			{
 				// already traversed
 				continue;
 			}
 				
-			IndexChain* newChain = FATImage_GetNewFileChain(disk);
+			ClusterChain* newChain = FATImage_GetNewFileChain(disk);
 
 			size_t currentIndex = index;
 			while(true)
@@ -160,8 +160,8 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 				uint16_t currentValue = disk->clusters[currentIndex].rawTableValue;
 				if(currentValue >= 0xFF8 && currentValue <= 0xFFF)
 				{
-					IndexChain_Append(newChain, currentIndex);
-					disk->clusters[currentIndex].fileChain = newChain;
+					ClusterChain_Append(newChain, currentIndex);
+					disk->clusters[currentIndex].clusterChain = newChain;
 					disk->clusters[currentIndex].status = FileLast;
 
 					// last file in chain, break
@@ -169,8 +169,8 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 				}
 				else if(currentValue >= 2 && currentValue < 2 + disk->information.dataSectorCount)
 				{
-					IndexChain_Append(newChain, currentIndex);
-					disk->clusters[currentIndex].fileChain = newChain;
+					ClusterChain_Append(newChain, currentIndex);
+					disk->clusters[currentIndex].clusterChain = newChain;
 					disk->clusters[currentIndex].status = File;
 
 					// file continues, follow cluster index chain
@@ -185,13 +185,13 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 		}
 	}
 
-	printf("Found %zd files...\n", disk->fileChainsLength);
-	for(size_t index = 0 ; index < disk->fileChainsLength ; ++index)
+	/*printf("Found %zd files...\n", disk->clusterChainsLength);
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
 	{
-		printf("File with %zd clusters:\n", disk->fileChains[index].length);
-		if(disk->fileChains[index].length > 0)
+		printf("File with %zd clusters:\n", disk->clusterChains[index].length);
+		if(disk->clusterChains[index].length > 0)
 		{
-			IndexChainNode* node = disk->fileChains[index].head;
+			ClusterChainNode* node = disk->clusterChains[index].head;
 			printf("\t%zd", node->index);
 			node = node->next;
 			while(node)
@@ -202,7 +202,7 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 		}
 
 		printf("\n");
-	}
+	} */
 }
 
 DirectoryEntry* FATImage_GetNewDirectoryEntry(FATImage* disk)
@@ -270,23 +270,29 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 		}
 		else
 		{
-			char filename[8];
-			CopyUntilFirstSpace((char*)rawDirectoryEntry + 1, 7, filename);
-			DirectoryEntryAttributes attributes = rawDirectoryEntry[11];
-			if(strlen(filename) == 0 || strcmp(filename, ".") == 0 || attributes & VolumeLabel)
-				continue;
-
-
 			DirectoryEntry* entry = FATImage_InitializeNewDirectoryEntry(disk, rawDirectoryEntry, directoryEntrySize);
 			entry->parent = parent;
-			if(entry->attributes & Subdirectory)
+
+			if(strlen(entry->filename) == 0 || strcmp(entry->filename, ".") == 0 || DirectoryEntry_IsVolumeLabel(entry))
 			{
-				printf("following directory %s to %zd = cluster %zd\n", entry->filename, entry->startCluster, disk->information.dataSectorStartSector - 2 + entry->startCluster);
-				FATImage_ReadDirectoryEntries_Internal(disk, disk->information.dataSectorStartSector - 2 + entry->startCluster, entry);
+				free(entry->filename);
+				free(entry->extension);
+				memset(entry, 0, sizeof(DirectoryEntry) / sizeof(unsigned char));
+				disk->directoryEntriesLength -= 1;
+				continue;
 			}
-			else
+			
+			Cluster* cluster  = disk->clusters + entry->startCluster;
+			if(cluster->clusterChain && cluster->clusterChain->head->index == entry->startCluster)
 			{
-				printf("found file named %s.%s and file size %zd starting at #%zd\n", entry->filename, entry->extension, entry->fileSize, entry->startCluster);
+				//printf("found matching cluster chain of length %zd!\n", cluster->clusterChain->length);
+				cluster->clusterChain->directoryEntry = entry;
+			}
+
+			if(DirectoryEntry_IsSubdirectory(entry))
+			{
+				//printf("following directory %s to %zd = cluster %zd\n", entry->filename, entry->startCluster, disk->information.dataSectorStartSector - 2 + entry->startCluster);
+				FATImage_ReadDirectoryEntries_Internal(disk, disk->information.dataSectorStartSector - 2 + entry->startCluster, entry);
 			}
 		}
 	}
@@ -321,4 +327,45 @@ void FATImage_ReadFileAllocationTable(FATImage* disk)
 	free(tableIndices);
 
 	FATImage_ReadClusterIndexSequenceAndCreateFileChains(disk);
+}
+
+void FATImage_PrintUnreferencedClusters(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	printf("Unreferenced:");
+	size_t unreferenced = 0;
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
+	{
+		ClusterChain* chain = disk->clusterChains + index;
+		if(chain->directoryEntry == NULL)
+		{
+			ClusterChainNode* node = chain->head;
+			while(node)
+			{
+				unreferenced += 1;
+				printf(" %zd", node->index);
+				node = node->next;
+			}
+		}
+	}
+	if(unreferenced == 0)
+		printf(" None");
+	putchar('\n');
+}
+
+void FATImage_PrintLostFiles(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
+	{
+		ClusterChain* chain = disk->clusterChains + index;
+		if(chain->directoryEntry == NULL)
+		{
+			printf("Lost file: %zd %zd\n", chain->head->index, chain->length);
+		}
+	}	
 }

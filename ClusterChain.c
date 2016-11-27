@@ -1,28 +1,28 @@
 #include <assert.h>
-#include "IndexChain.h"
+#include "ClusterChain.h"
 
-IndexChain* IndexChain_Make()
+ClusterChain* ClusterChain_Make()
 {
-	IndexChain* chain = calloc(1, sizeof(IndexChain));
+	ClusterChain* chain = calloc(1, sizeof(ClusterChain));
 	assert(chain != NULL);
 
 	return chain;
 }
 
-void IndexChain_Free(IndexChain* toFree)
+void ClusterChain_Free(ClusterChain* toFree)
 {
 	assert(toFree != NULL);
-	IndexChain_FreeNodes(toFree);
+	ClusterChain_FreeNodes(toFree);
 	free(toFree);
 }
 
-void IndexChain_FreeNodes(IndexChain* toFree)
+void ClusterChain_FreeNodes(ClusterChain* toFree)
 {
 	assert(toFree != NULL);
-	IndexChainNode* current = toFree->head;
+	ClusterChainNode* current = toFree->head;
 	while(current != NULL)
 	{
-		IndexChainNode* next = current->next;
+		ClusterChainNode* next = current->next;
 		free(current);
 		current = next;
 	}
@@ -30,9 +30,9 @@ void IndexChain_FreeNodes(IndexChain* toFree)
 	toFree->length = 0;
 }
 
-void IndexChain_Append(IndexChain* chain, size_t index)
+void ClusterChain_Append(ClusterChain* chain, size_t index)
 {
-	IndexChainNode* node = calloc(1, sizeof(IndexChainNode));
+	ClusterChainNode* node = calloc(1, sizeof(ClusterChainNode));
 	assert(node != NULL);
 	node->index = index;
 	node->chain = chain;

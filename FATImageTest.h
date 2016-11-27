@@ -11,18 +11,18 @@ TEST FATImage_Make_ReturnsZeroedOutStructWithZeroedOutFileChains()
 	ASSERT_EQ(disk->imageSize, 0);
 	ASSERT_EQ(disk->imageFileDescriptor, 0);
 
-	ASSERT_EQ(disk->fileChainsLength, 0);
-	if(disk->fileChainsCapacity > 0)
+	ASSERT_EQ(disk->clusterChainsLength, 0);
+	if(disk->clusterChainsCapacity > 0)
 	{
-		for(size_t index = 0 ; index < disk->fileChainsCapacity ; ++index)
+		for(size_t index = 0 ; index < disk->clusterChainsCapacity ; ++index)
 		{
-			IndexChain* chain = disk->fileChains + index;
+			ClusterChain* chain = disk->clusterChains + index;
 			ASSERT_EQ(chain->head, NULL);
 			ASSERT_EQ(chain->tail, NULL);
 			ASSERT_EQ(chain->length, 0);
 		}
 	} else {
-		ASSERT_EQ(disk->fileChains, NULL);
+		ASSERT_EQ(disk->clusterChains, NULL);
 	}
 
 	ASSERT_EQ(disk->directoryEntriesLength, 0);
@@ -34,7 +34,7 @@ TEST FATImage_Make_ReturnsZeroedOutStructWithZeroedOutFileChains()
 			ASSERT_EQ(entry->parent, NULL);
 			ASSERT_EQ(entry->filename, NULL);
 			ASSERT_EQ(entry->extension, NULL);
-			ASSERT_EQ(entry->attribute, 0);
+			ASSERT_EQ(entry->attributes, 0);
 			ASSERT_EQ(entry->fileSize, 0);
 			ASSERT_EQ(entry->startCluster, 0);
 		}
@@ -78,21 +78,21 @@ TEST FATImage_UpdateDiskInformation_Success()
 	PASS();
 }
 
-IndexChain* FATImage_GetNewFileChain(FATImage* disk);
+ClusterChain* FATImage_GetNewFileChain(FATImage* disk);
 
 TEST FATImage_GetNewFileChain_ReturnsNewItemAndUpdatesLength()
 {
 	FATImage* disk = FATImage_Make();
 
-	IndexChain* one = FATImage_GetNewFileChain(disk);
-	IndexChain_Append(one, 42);
+	ClusterChain* one = FATImage_GetNewFileChain(disk);
+	ClusterChain_Append(one, 42);
 
-	IndexChain* two = FATImage_GetNewFileChain(disk);
-	IndexChain_Append(two, 24);
-	IndexChain_Append(two, 42);
+	ClusterChain* two = FATImage_GetNewFileChain(disk);
+	ClusterChain_Append(two, 24);
+	ClusterChain_Append(two, 42);
 
 	// Check length is updated
-	ASSERT_EQ(disk->fileChainsLength, 2);
+	ASSERT_EQ(disk->clusterChainsLength, 2);
 
 	// Check if two new/distinct items were actually returned
 	ASSERT_EQ(one->length, 1);
@@ -110,31 +110,31 @@ TEST FATImage_GetNewFileChain_GrowsArrayAsNeeded()
 {
 	FATImage* disk = FATImage_Make();
 
-	size_t capacity = disk->fileChainsCapacity;
+	size_t capacity = disk->clusterChainsCapacity;
 	for(size_t index = 0 ; index < capacity ; ++index)
 	{
-		IndexChain* chain = FATImage_GetNewFileChain(disk);
-		IndexChain_Append(chain, index);
+		ClusterChain* chain = FATImage_GetNewFileChain(disk);
+		ClusterChain_Append(chain, index);
 	}
-	ASSERT_EQ(disk->fileChainsLength, capacity);
+	ASSERT_EQ(disk->clusterChainsLength, capacity);
 
 
-	IndexChain* chain = FATImage_GetNewFileChain(disk);
-	IndexChain_Append(chain, capacity);
+	ClusterChain* chain = FATImage_GetNewFileChain(disk);
+	ClusterChain_Append(chain, capacity);
 
-	ASSERT_EQ(disk->fileChainsLength, capacity + 1);
-	ASSERT(disk->fileChainsCapacity > capacity); 
+	ASSERT_EQ(disk->clusterChainsLength, capacity + 1);
+	ASSERT(disk->clusterChainsCapacity > capacity); 
 
-	for(size_t index = 0 ; index < disk->fileChainsLength ; ++index)
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
 	{
-		IndexChain* chain = disk->fileChains + index;
+		ClusterChain* chain = disk->clusterChains + index;
 		ASSERT_EQ(chain->length, 1);
 		ASSERT_EQ(chain->head->index, index);
 	}
 
-	for(size_t index = disk->fileChainsLength ; index < disk->fileChainsCapacity ; ++index)
+	for(size_t index = disk->clusterChainsLength ; index < disk->clusterChainsCapacity ; ++index)
 	{
-		IndexChain* chain = disk->fileChains + index;
+		ClusterChain* chain = disk->clusterChains + index;
 		ASSERT_EQ(chain->head, NULL);
 		ASSERT_EQ(chain->tail, NULL);
 		ASSERT_EQ(chain->length, 0);
@@ -201,7 +201,7 @@ TEST FATImage_GetNewDirectoryEntry_GrowsArrayAsNeeded()
 		ASSERT_EQ(entry->parent, NULL);
 		ASSERT_EQ(entry->filename, NULL);
 		ASSERT_EQ(entry->extension, NULL);
-		ASSERT_EQ(entry->attribute, 0);
+		ASSERT_EQ(entry->attributes, 0);
 		ASSERT_EQ(entry->fileSize, 0);
 		ASSERT_EQ(entry->startCluster, 0);
 	}
@@ -225,10 +225,10 @@ TEST FATImage_ReadClusterIndexSequenceAndCreateFileChains_UnusedBadReserved()
 	CopyTableValuesToClusterArray(disk->clusters, (uint16_t[]){ 0x000, 0x000, 0x000, 0xFF0, 0xFF3, 0xFF6, 0xFF7}, 7);
 	FATImage_ReadClusterIndexSequenceAndCreateFileChains(disk);
 
-	ASSERT_EQ(disk->fileChainsLength, 0);
+	ASSERT_EQ(disk->clusterChainsLength, 0);
 	for(size_t index = 2 ; index < 6 ; ++index)
 	{
-		ASSERT_EQ(disk->clusters[index].fileChain, NULL);
+		ASSERT_EQ(disk->clusters[index].clusterChain, NULL);
 	}
 
 	ASSERT_EQ(disk->clusters[2].status, Unused);
@@ -248,11 +248,11 @@ TEST FATImage_ReadClusterIndexSequenceAndCreateFileChains_FourSeparateFiles()
 	CopyTableValuesToClusterArray(disk->clusters, (uint16_t[]){ 0x000, 0x000, 0xFF8, 0xFFB, 0xFFC, 0xFFF}, 6);
 	FATImage_ReadClusterIndexSequenceAndCreateFileChains(disk);
 
-	ASSERT_EQ(disk->fileChainsLength, 4);
+	ASSERT_EQ(disk->clusterChainsLength, 4);
 	for(size_t index = 2 ; index < 6 ; ++index)
 	{
-		ASSERT_EQ(disk->clusters[index].fileChain->length, 1);
-		ASSERT_EQ(disk->clusters[index].fileChain->head->index, index);
+		ASSERT_EQ(disk->clusters[index].clusterChain->length, 1);
+		ASSERT_EQ(disk->clusters[index].clusterChain->head->index, index);
 		ASSERT_EQ(disk->clusters[index].status, FileLast);
 	}
 
@@ -267,8 +267,8 @@ TEST FATImage_ReadClusterIndexSequenceAndCreateFileChains_OneBigFile()
 	CopyTableValuesToClusterArray(disk->clusters, (uint16_t[]){ 0x000, 0x000, 0x003, 0x004, 0x005, 0xFFF}, 6);
 	FATImage_ReadClusterIndexSequenceAndCreateFileChains(disk);
 
-	IndexChain* chain = disk->fileChains;
-	ASSERT_EQ(disk->fileChainsLength, 1);
+	ClusterChain* chain = disk->clusterChains;
+	ASSERT_EQ(disk->clusterChainsLength, 1);
 	ASSERT_EQ(chain->length, 4);
 	ASSERT_EQ(chain->head->index, 2);
 	ASSERT_EQ(chain->head->next->index, 3);
@@ -276,7 +276,7 @@ TEST FATImage_ReadClusterIndexSequenceAndCreateFileChains_OneBigFile()
 	ASSERT_EQ(chain->tail->index, 5);
 	for(size_t index = 2 ; index < 6 ; ++index)
 	{
-		ASSERT_EQ(disk->clusters[index].fileChain, chain);
+		ASSERT_EQ(disk->clusters[index].clusterChain, chain);
 		ASSERT_EQ(disk->clusters[index].status, index == 5 ? FileLast : File);
 	}
 
@@ -291,27 +291,27 @@ TEST FATImage_ReadClusterIndexSequenceAndCreateFileChains_ThreeFragmentedFiles()
 	CopyTableValuesToClusterArray(disk->clusters, (uint16_t[]){ 0x000, 0x000, 0x004, 0x005, 0xFFF, 0x006, 0xFFF, 0xFFF }, 8);
 	FATImage_ReadClusterIndexSequenceAndCreateFileChains(disk);
 
-	ASSERT_EQ(disk->fileChainsLength, 3);
-	IndexChain* one = disk->fileChains;
+	ASSERT_EQ(disk->clusterChainsLength, 3);
+	ClusterChain* one = disk->clusterChains;
 	ASSERT_EQ(one->length, 2);
 	ASSERT_EQ(one->head->index, 2);
 	ASSERT_EQ(one->tail->index, 4);
-	ASSERT_EQ(disk->clusters[2].status, File); ASSERT_EQ(disk->clusters[2].fileChain, one);
-	ASSERT_EQ(disk->clusters[4].status, FileLast); ASSERT_EQ(disk->clusters[4].fileChain, one);
+	ASSERT_EQ(disk->clusters[2].status, File); ASSERT_EQ(disk->clusters[2].clusterChain, one);
+	ASSERT_EQ(disk->clusters[4].status, FileLast); ASSERT_EQ(disk->clusters[4].clusterChain, one);
 
-	IndexChain* two = disk->fileChains + 1;
+	ClusterChain* two = disk->clusterChains + 1;
 	ASSERT_EQ(two->length, 3);
 	ASSERT_EQ(two->head->index, 3);
 	ASSERT_EQ(two->head->next->index, 5);
 	ASSERT_EQ(two->tail->index, 6);
-	ASSERT_EQ(disk->clusters[3].status, File); ASSERT_EQ(disk->clusters[3].fileChain, two);
-	ASSERT_EQ(disk->clusters[5].status, File); ASSERT_EQ(disk->clusters[5].fileChain, two);
-	ASSERT_EQ(disk->clusters[6].status, FileLast); ASSERT_EQ(disk->clusters[6].fileChain, two);
+	ASSERT_EQ(disk->clusters[3].status, File); ASSERT_EQ(disk->clusters[3].clusterChain, two);
+	ASSERT_EQ(disk->clusters[5].status, File); ASSERT_EQ(disk->clusters[5].clusterChain, two);
+	ASSERT_EQ(disk->clusters[6].status, FileLast); ASSERT_EQ(disk->clusters[6].clusterChain, two);
 
-	IndexChain* three = disk->fileChains + 2;
+	ClusterChain* three = disk->clusterChains + 2;
 	ASSERT_EQ(three->length, 1);
 	ASSERT_EQ(three->head->index, 7);
-	ASSERT_EQ(disk->clusters[7].status, FileLast); ASSERT_EQ(disk->clusters[7].fileChain, three);
+	ASSERT_EQ(disk->clusters[7].status, FileLast); ASSERT_EQ(disk->clusters[7].clusterChain, three);
 
 	FATImage_Free(disk);
 	PASS();

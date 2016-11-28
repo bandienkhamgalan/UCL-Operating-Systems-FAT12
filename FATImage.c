@@ -8,8 +8,18 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include "FATImage.h"
 #include "Helpers.h"
+
+#define NONE 0
+#define INFO 1
+#define DETAIL 2
+#define DEBUG 3
+extern int log_level;
+#define LOG(level, ...) if (level <= log_level) printf(__VA_ARGS__);
+
+#define LOG_LEVEL NONE
 
 FATImage* FATImage_Make()
 {
@@ -49,7 +59,7 @@ FATImage* FATImage_Initialize(char* imageFile)
 	}
 
 	size_t fileSize = fileInfo.st_size;
-	uint8_t* image = mmap(NULL, fileSize, PROT_READ | PROT_WRITE, MAP_PRIVATE, fileDescriptor, 0);
+	uint8_t* image = mmap(NULL, fileSize, PROT_READ | PROT_WRITE, MAP_SHARED, fileDescriptor, 0);
 	if(image == MAP_FAILED)
 	{
 		currentError = errno;
@@ -61,6 +71,7 @@ FATImage* FATImage_Initialize(char* imageFile)
 	new->imageSize = fileSize;
 	new->image = image;
 	new->imageFileDescriptor = fileDescriptor;
+	LOG(DETAIL, "successfully mapped %zd bytes to fd %d\n", new->imageSize, new->imageFileDescriptor);
 	return new;
 }
 
@@ -185,24 +196,23 @@ void FATImage_ReadClusterIndexSequenceAndCreateFileChains(FATImage* disk)
 		}
 	}
 
-	/*printf("Found %zd files...\n", disk->clusterChainsLength);
+	LOG(INFO, "Found %zd files...\n", disk->clusterChainsLength);
 	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
 	{
-		printf("File with %zd clusters:\n", disk->clusterChains[index].length);
+		LOG(DETAIL, "File with %zd clusters:\n", disk->clusterChains[index].length);
 		if(disk->clusterChains[index].length > 0)
 		{
 			ClusterChainNode* node = disk->clusterChains[index].head;
-			printf("\t%zd", node->index);
+			LOG(DEBUG, "\t%zd", node->index);
 			node = node->next;
 			while(node)
 			{
-				printf(" > %zd", node->index);
+				LOG(DEBUG, " > %zd", node->index);
 				node = node->next;
 			}
 		}
-
-		printf("\n");
-	} */
+		LOG(DEBUG, "\n");
+	}
 }
 
 DirectoryEntry* FATImage_GetNewDirectoryEntry(FATImage* disk)
@@ -231,9 +241,9 @@ DirectoryEntry* FATImage_InitializeNewDirectoryEntry(FATImage* disk, uint8_t* di
 
 	DirectoryEntry* entry = FATImage_GetNewDirectoryEntry(disk);
 
-	entry->filename = calloc(8, sizeof(char));
+	entry->filename = calloc(9, sizeof(char));
 	assert(entry->filename != NULL);
-	CopyUntilFirstSpace((char*)directoryEntry + 1, 7, entry->filename);
+	CopyUntilFirstSpace((char*)directoryEntry, 8, entry->filename);
 
 	entry->extension = calloc(4, sizeof(char));
 	assert(entry->extension != NULL);
@@ -266,6 +276,11 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 		else if(firstByte == 0x00)
 		{
 			// last directory entry in sector
+			if(parent == NULL && disk->lastRootDirectoryEntry == NULL)
+			{
+				LOG(DEBUG, "last root directory entry is %zd\n", sectorSize * sector + index * directoryEntrySize);
+				disk->lastRootDirectoryEntry = rawDirectoryEntry;
+			}
 			break;
 		}
 		else
@@ -273,7 +288,21 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 			DirectoryEntry* entry = FATImage_InitializeNewDirectoryEntry(disk, rawDirectoryEntry, directoryEntrySize);
 			entry->parent = parent;
 
-			if(strlen(entry->filename) == 0 || strcmp(entry->filename, ".") == 0 || DirectoryEntry_IsVolumeLabel(entry))
+			char* filename = entry->filename;
+			bool delete = true;
+			while(true)
+			{
+				if(*filename == '\0')
+					break;
+				if(*filename != '.')
+				{
+					delete = false;
+					break;
+				}
+				filename++;
+			}
+
+			if(delete || DirectoryEntry_IsVolumeLabel(entry))
 			{
 				free(entry->filename);
 				free(entry->extension);
@@ -285,15 +314,17 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 			Cluster* cluster  = disk->clusters + entry->startCluster;
 			if(cluster->clusterChain && cluster->clusterChain->head->index == entry->startCluster)
 			{
-				//printf("found matching cluster chain of length %zd!\n", cluster->clusterChain->length);
+				LOG(DETAIL, "found matching cluster chain of length %zd!\n", cluster->clusterChain->length);
 				cluster->clusterChain->directoryEntry = entry;
 			}
 
 			if(DirectoryEntry_IsSubdirectory(entry))
 			{
-				//printf("following directory %s to %zd = cluster %zd\n", entry->filename, entry->startCluster, disk->information.dataSectorStartSector - 2 + entry->startCluster);
+				LOG(DETAIL, "following directory %s to %zd = cluster %zd\n", entry->filename, entry->startCluster, disk->information.dataSectorStartSector - 2 + entry->startCluster);
 				FATImage_ReadDirectoryEntries_Internal(disk, disk->information.dataSectorStartSector - 2 + entry->startCluster, entry);
 			}
+
+			LOG(INFO, "found file %s.%s of size %zd\n", entry->filename, entry->extension, entry->fileSize);
 		}
 	}
 }
@@ -368,4 +399,153 @@ void FATImage_PrintLostFiles(FATImage* disk)
 			printf("Lost file: %zd %zd\n", chain->head->index, chain->length);
 		}
 	}	
+}
+
+DirectoryEntry* FATImage_WriteNewRootDirectoryEntry(FATImage* disk, char* filename, char* extension, size_t fileSize, size_t startCluster)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	uint8_t* lastRootDirectoryEntry = disk->lastRootDirectoryEntry;
+
+	for(size_t index = 0 ; index < 8 ; ++index)
+	{
+		if(index < strlen(filename))
+			lastRootDirectoryEntry[index] = (uint8_t)filename[index];
+		else
+			lastRootDirectoryEntry[index] = ' ';
+	}
+
+	for(size_t index = 0 ; index < 3 ; ++index)
+	{
+		if(index < strlen(extension))
+			lastRootDirectoryEntry[8 + index] = (uint8_t)extension[index];
+		else
+			lastRootDirectoryEntry[index] = ' ';
+	}
+
+	NumberTo8ByteLittleEndianSequence(fileSize, lastRootDirectoryEntry + 28, 4);
+	NumberTo8ByteLittleEndianSequence(startCluster, lastRootDirectoryEntry + 26, 2);
+
+	DirectoryEntry* toReturn = FATImage_InitializeNewDirectoryEntry(disk, lastRootDirectoryEntry, 32);
+	if(INFO < log_level)
+	{
+		printf("Wrote new root directory entry:\n");
+		DirectoryEntry_Print(toReturn);
+	}
+
+	disk->lastRootDirectoryEntry = disk->lastRootDirectoryEntry + 32;
+	disk->lastRootDirectoryEntry[0] = 0x00;
+
+	return toReturn;
+}
+
+void FATImage_RecoverLostFiles(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	int lost = 0;
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
+	{
+		ClusterChain* chain = disk->clusterChains + index;
+		if(chain->directoryEntry == NULL)
+		{
+			++lost;
+
+			char* filename = calloc(9, sizeof(char));
+			assert(filename != NULL);
+			sprintf(filename, "FOUND%d", lost);
+
+			char* extension = calloc(4, sizeof(char));
+			assert(extension != NULL);
+			strncpy(extension, "DAT", 3);
+
+			size_t fileSize = chain->length * disk->information.sectorSize;
+
+			DirectoryEntry* newEntry = FATImage_WriteNewRootDirectoryEntry(disk, filename, extension, fileSize, chain->head->index);
+			chain->directoryEntry = newEntry;
+
+			free(filename);
+			free(extension);
+		}
+	}	
+}
+
+void FATImage_PrintSizeInconsistencies(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	size_t sectorSize = disk->information.sectorSize;
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
+	{
+		ClusterChain* chain = disk->clusterChains + index;
+		if(!ClusterChain_SizeMatchesDirectoryEntry(chain, sectorSize))
+		{
+			DirectoryEntry* entry = chain->directoryEntry;
+			printf("%s.%s %zd %zd\n", entry->filename, entry->extension, entry->fileSize, chain->length * sectorSize);
+		}
+	}
+}
+
+void FATImage_TruncateClusterChain(FATImage* disk, ClusterChain* chain, size_t newLength)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+	assert(chain != NULL);
+	assert(newLength < chain->length);
+
+	LOG(INFO, 	"truncating %s.%s to %zd clusters = %zd bytes\n", chain->directoryEntry->filename, chain->directoryEntry->extension,
+				newLength, newLength * disk->information.sectorSize);
+
+	size_t traversed = 0;
+	ClusterChainNode* node = chain->head;
+	while(node)
+	{
+		traversed++;
+		if(traversed == newLength)
+		{
+			// mark cluster as last cluster of file
+			WriteTo12ByteLittleEndianSequence(0xFFF, disk->image + 512, node->index);
+		}
+		else if(traversed > newLength)
+		{
+			// mark cluster as free
+			WriteTo12ByteLittleEndianSequence(0x000, disk->image + 512, node->index);
+		}
+		
+		node = node->next;
+	}
+
+	ClusterChain_Truncate(chain, newLength);
+}
+
+void FATImage_ResolveSizeInconsistencies(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->clusters != NULL);
+
+	size_t sectorSize = disk->information.sectorSize;
+	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
+	{
+		ClusterChain* chain = disk->clusterChains + index;
+		if(!ClusterChain_SizeMatchesDirectoryEntry(chain, sectorSize))
+		{
+			size_t newLength = ceil(chain->directoryEntry->fileSize / 512.0);
+			if(newLength == 0)
+				newLength = 1;
+
+			if(newLength < chain->length)
+				FATImage_TruncateClusterChain(disk, chain, newLength);
+		}
+	}
+}
+
+void FATImage_SaveChanges(FATImage* disk)
+{
+	assert(disk != NULL);
+	assert(disk->image != NULL);
+
+	msync(disk->image, disk->imageSize, MS_SYNC);
 }

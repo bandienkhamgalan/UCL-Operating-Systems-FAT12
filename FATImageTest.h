@@ -10,6 +10,7 @@ TEST FATImage_Make_ReturnsZeroedOutStructWithZeroedOutFileChains()
 	ASSERT_EQ(disk->image, NULL);
 	ASSERT_EQ(disk->imageSize, 0);
 	ASSERT_EQ(disk->imageFileDescriptor, 0);
+	ASSERT_EQ(disk->lastRootDirectoryEntry, NULL);
 
 	ASSERT_EQ(disk->clusterChainsLength, 0);
 	if(disk->clusterChainsCapacity > 0)

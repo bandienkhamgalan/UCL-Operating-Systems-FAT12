@@ -50,6 +50,8 @@ typedef struct
 	size_t directoryEntriesLength;
 	size_t directoryEntriesCapacity;
 	
+	uint8_t* lastRootDirectoryEntry;
+
 	uint8_t* image;
 	size_t imageSize;
 	int imageFileDescriptor; 
@@ -64,3 +66,7 @@ void FATImage_ReadFileAllocationTable(FATImage* disk);
 void FATImage_ReadDirectoryEntries(FATImage* disk);
 void FATImage_PrintUnreferencedClusters(FATImage* disk);
 void FATImage_PrintLostFiles(FATImage* disk);
+void FATImage_RecoverLostFiles(FATImage* disk);
+void FATImage_PrintSizeInconsistencies(FATImage* disk);
+void FATImage_ResolveSizeInconsistencies(FATImage* disk);
+void FATImage_SaveChanges(FATImage* disk);

@@ -36,8 +36,32 @@ void Read12ByteLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16
 	}
 }
 
+void WriteTo12ByteLittleEndianSequence(uint16_t number, uint8_t* destination, size_t index)
+{
+	assert(destination != NULL);
+	
+	uint8_t* firstByte = destination + (index * 3 / 2);
+	uint8_t* secondByte = destination + ((index * 3 / 2) + 1);
+
+	if(index % 2 == 0)
+	{
+		*firstByte = number & 0x0FF;
+		*secondByte = *secondByte & 0xF0;
+		*secondByte = *secondByte | ((number & 0xF00) >> 8);
+	}
+	else
+	{
+		*firstByte = *firstByte & 0x0F;
+		*firstByte = *firstByte | ((number & 0x00F) << 4);
+		*secondByte = (number & 0xFF0) >> 4;
+	}
+}
+
 void CopyUntilFirstSpace(char* source, size_t sourceLength, char* destination)
 {
+	assert(source != NULL);
+	assert(destination != NULL);
+
 	size_t index = 0;
 	for( ; index < sourceLength ; ++index)
 	{
@@ -51,6 +75,8 @@ void CopyUntilFirstSpace(char* source, size_t sourceLength, char* destination)
 
 long NumberFrom8ByteLittleEndianSequence(uint8_t* source, size_t sourceLength)
 {
+	assert(source != NULL);
+
 	long toReturn = 0;
 	uint8_t* current = source + (sourceLength - 1);
 	for(size_t index = 0 ; index < sourceLength ; ++index)
@@ -59,4 +85,16 @@ long NumberFrom8ByteLittleEndianSequence(uint8_t* source, size_t sourceLength)
 		--current;
 	}
 	return toReturn;
+}
+
+void NumberTo8ByteLittleEndianSequence(uint32_t number, uint8_t* destination, size_t destinationLength)
+{
+	assert(destination != NULL);
+
+	uint8_t* current = destination;
+	for(size_t index = 0 ; index < destinationLength ; ++index)
+	{
+		current[index] = number & 0xFF;
+		number >>= 8;
+	}
 }

@@ -16,3 +16,4 @@ typedef struct DirectoryEntry
 
 bool DirectoryEntry_IsVolumeLabel(DirectoryEntry* directoryEntry);
 bool DirectoryEntry_IsSubdirectory(DirectoryEntry* directoryEntry);
+void DirectoryEntry_Print(DirectoryEntry* directoryEntry);

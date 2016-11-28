@@ -32,6 +32,7 @@ void ClusterChain_FreeNodes(ClusterChain* toFree)
 
 void ClusterChain_Append(ClusterChain* chain, size_t index)
 {
+	assert(chain != NULL);
 	ClusterChainNode* node = calloc(1, sizeof(ClusterChainNode));
 	assert(node != NULL);
 	node->index = index;
@@ -48,4 +49,51 @@ void ClusterChain_Append(ClusterChain* chain, size_t index)
 	}
 
 	++(chain->length);
+}
+
+bool ClusterChain_SizeMatchesDirectoryEntry(ClusterChain* chain, size_t sectorSize)
+{
+	assert(chain != NULL);
+
+	if(chain->directoryEntry == NULL)
+		return true;
+
+	size_t minSize = (chain->length - 1) * sectorSize;
+	size_t maxSize = chain->length * sectorSize;
+
+	return chain->directoryEntry->fileSize >= minSize && chain->directoryEntry->fileSize <= maxSize;
+}
+
+void ClusterChain_Truncate(ClusterChain* chain, size_t newLength)
+{
+	assert(chain != NULL);
+
+	if(newLength < chain->length)
+	{
+		ClusterChainNode* node = chain->head;
+		size_t traversed = 1;
+		while(node)
+		{
+			if(traversed == newLength)
+			{
+				ClusterChainNode* next = node->next;
+				node->next = NULL;
+				node = next;
+			}
+			else if(traversed > newLength)
+			{
+				ClusterChainNode* next = node->next;
+				free(node);
+				node = next;
+			}
+			else
+			{
+				node = node->next;
+			}
+			
+			traversed++;
+		}
+
+		chain->length = newLength;
+	}
 }

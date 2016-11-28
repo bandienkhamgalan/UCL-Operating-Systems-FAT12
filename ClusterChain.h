@@ -25,3 +25,6 @@ ClusterChain* ClusterChain_Make();
 void ClusterChain_Free(ClusterChain* chain);
 void ClusterChain_FreeNodes(ClusterChain* chain);
 void ClusterChain_Append(ClusterChain* chain, size_t index);
+void ClusterChain_Truncate(ClusterChain* chain, size_t newLength);
+
+bool ClusterChain_SizeMatchesDirectoryEntry(ClusterChain* chain, size_t sectorSize);

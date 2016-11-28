@@ -3,6 +3,12 @@
 #include "FATImageTest.h"
 #include "HelpersTest.h"
 
+#define NONE 0
+#define INFO 1
+#define DETAIL 2
+#define DEBUG 3
+int log_level = NONE;
+
 GREATEST_MAIN_DEFS();
 
 int main(int argc, char** argv)

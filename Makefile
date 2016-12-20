@@ -4,7 +4,7 @@ CFLAGS := -Wall -Werror -std=c99 -g
 Src := ClusterChain FATImage Helpers DirectoryEntry
 Obj := $(addsuffix .o, $(Src))
 
-default: main.o $(Obj)
+default: dos_scandisk.o $(Obj)
 	@$(C) $(CFLAGS) -o dos_scandisk $^ -lm
 
 test: test.o $(Obj)

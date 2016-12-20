@@ -2,6 +2,8 @@
 #include "greatest/greatest.h"
 #include "FATImage.h"
 
+FATImage* FATImage_Make();
+
 TEST FATImage_Make_ReturnsZeroedOutStructWithZeroedOutFileChains()
 {
 	FATImage* disk = FATImage_Make();

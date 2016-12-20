@@ -99,7 +99,7 @@ void FATImage_Free(FATImage* toFree)
 long FATImage_ReadLittleEndian(FATImage* disk, size_t sector, size_t offset, size_t length)
 {
 	assert(disk != NULL);
-	return NumberFrom8ByteLittleEndianSequence(&(disk->image[sector * disk->information.sectorSize + offset]), length);
+	return NumberFrom8BitLittleEndianSequence(&(disk->image[sector * disk->information.sectorSize + offset]), length);
 }
 
 void FATImage_UpdateDiskInformation(FATImage* disk)
@@ -250,8 +250,8 @@ DirectoryEntry* FATImage_InitializeNewDirectoryEntry(FATImage* disk, uint8_t* di
 	CopyUntilFirstSpace((char*)directoryEntry + 8, 3, entry->extension);
 
 	entry->attributes = directoryEntry[11];
-	entry->startCluster = NumberFrom8ByteLittleEndianSequence(directoryEntry + 26, 2);
-	entry->fileSize = NumberFrom8ByteLittleEndianSequence(directoryEntry + 28, 4);
+	entry->startCluster = NumberFrom8BitLittleEndianSequence(directoryEntry + 26, 2);
+	entry->fileSize = NumberFrom8BitLittleEndianSequence(directoryEntry + 28, 4);
 	
 	return entry;
 }
@@ -288,6 +288,8 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 			DirectoryEntry* entry = FATImage_InitializeNewDirectoryEntry(disk, rawDirectoryEntry, directoryEntrySize);
 			entry->parent = parent;
 
+			LOG(INFO, "found file %s EXT %s of size %zd\n", entry->filename, entry->extension, entry->fileSize);
+
 			char* filename = entry->filename;
 			bool delete = true;
 			while(true)
@@ -304,6 +306,7 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 
 			if(delete || DirectoryEntry_IsVolumeLabel(entry))
 			{
+				LOG(INFO, "skipping file (is volume label OR has dots)\n");
 				free(entry->filename);
 				free(entry->extension);
 				memset(entry, 0, sizeof(DirectoryEntry) / sizeof(unsigned char));
@@ -324,7 +327,7 @@ void FATImage_ReadDirectoryEntries_Internal(FATImage* disk, size_t sector, Direc
 				FATImage_ReadDirectoryEntries_Internal(disk, disk->information.dataSectorStartSector - 2 + entry->startCluster, entry);
 			}
 
-			LOG(INFO, "found file %s.%s of size %zd\n", entry->filename, entry->extension, entry->fileSize);
+			
 		}
 	}
 }
@@ -347,7 +350,7 @@ void FATImage_ReadFileAllocationTable(FATImage* disk)
 	size_t sectors = disk->information.sectorCount;
 	uint16_t* tableIndices = calloc(disk->information.sectorCount, sizeof(uint16_t));
 	assert(tableIndices != NULL);
-	Read12ByteLittleEndianSequence(disk->image + 512, sectors * 3 / 2, tableIndices, sectors);
+	Read12BitLittleEndianSequence(disk->image + 512, sectors * 3 / 2, tableIndices, sectors);
 
 	disk->clusters = calloc(sectors, sizeof(Cluster));
 	assert(disk->clusters != NULL);
@@ -365,7 +368,6 @@ void FATImage_PrintUnreferencedClusters(FATImage* disk)
 	assert(disk != NULL);
 	assert(disk->clusters != NULL);
 
-	printf("Unreferenced:");
 	size_t unreferenced = 0;
 	for(size_t index = 0 ; index < disk->clusterChainsLength ; ++index)
 	{
@@ -375,15 +377,17 @@ void FATImage_PrintUnreferencedClusters(FATImage* disk)
 			ClusterChainNode* node = chain->head;
 			while(node)
 			{
+				if(unreferenced == 0)
+					printf("Unreferenced:");
+				
 				unreferenced += 1;
 				printf(" %zd", node->index);
 				node = node->next;
 			}
 		}
 	}
-	if(unreferenced == 0)
-		printf(" None");
-	putchar('\n');
+	if(unreferenced > 0)
+		putchar('\n');
 }
 
 void FATImage_PrintLostFiles(FATImage* disk)
@@ -424,8 +428,8 @@ DirectoryEntry* FATImage_WriteNewRootDirectoryEntry(FATImage* disk, char* filena
 			lastRootDirectoryEntry[index] = ' ';
 	}
 
-	NumberTo8ByteLittleEndianSequence(fileSize, lastRootDirectoryEntry + 28, 4);
-	NumberTo8ByteLittleEndianSequence(startCluster, lastRootDirectoryEntry + 26, 2);
+	NumberTo8BitLittleEndianSequence(fileSize, lastRootDirectoryEntry + 28, 4);
+	NumberTo8BitLittleEndianSequence(startCluster, lastRootDirectoryEntry + 26, 2);
 
 	DirectoryEntry* toReturn = FATImage_InitializeNewDirectoryEntry(disk, lastRootDirectoryEntry, 32);
 	if(INFO < log_level)
@@ -507,12 +511,12 @@ void FATImage_TruncateClusterChain(FATImage* disk, ClusterChain* chain, size_t n
 		if(traversed == newLength)
 		{
 			// mark cluster as last cluster of file
-			WriteTo12ByteLittleEndianSequence(0xFFF, disk->image + 512, node->index);
+			Write12BitLittleEndianSequence(0xFFF, disk->image + 512, node->index);
 		}
 		else if(traversed > newLength)
 		{
 			// mark cluster as free
-			WriteTo12ByteLittleEndianSequence(0x000, disk->image + 512, node->index);
+			Write12BitLittleEndianSequence(0x000, disk->image + 512, node->index);
 		}
 		
 		node = node->next;

@@ -2,7 +2,7 @@
 #include <assert.h>
 #include <ctype.h>
 
-void Read12ByteLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16_t* destination, size_t destinationLength)
+void Read12BitLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16_t* destination, size_t destinationLength)
 {
 	assert(source != NULL);
 	assert(destination != NULL);
@@ -36,7 +36,7 @@ void Read12ByteLittleEndianSequence(uint8_t* source, size_t sourceLength, uint16
 	}
 }
 
-void WriteTo12ByteLittleEndianSequence(uint16_t number, uint8_t* destination, size_t index)
+void Write12BitLittleEndianSequence(uint16_t number, uint8_t* destination, size_t index)
 {
 	assert(destination != NULL);
 	
@@ -73,11 +73,11 @@ void CopyUntilFirstSpace(char* source, size_t sourceLength, char* destination)
 	destination[index] = '\0';
 }
 
-long NumberFrom8ByteLittleEndianSequence(uint8_t* source, size_t sourceLength)
+uint32_t NumberFrom8BitLittleEndianSequence(uint8_t* source, size_t sourceLength)
 {
 	assert(source != NULL);
 
-	long toReturn = 0;
+	uint32_t toReturn = 0;
 	uint8_t* current = source + (sourceLength - 1);
 	for(size_t index = 0 ; index < sourceLength ; ++index)
 	{
@@ -87,7 +87,7 @@ long NumberFrom8ByteLittleEndianSequence(uint8_t* source, size_t sourceLength)
 	return toReturn;
 }
 
-void NumberTo8ByteLittleEndianSequence(uint32_t number, uint8_t* destination, size_t destinationLength)
+void NumberTo8BitLittleEndianSequence(uint32_t number, uint8_t* destination, size_t destinationLength)
 {
 	assert(destination != NULL);
 

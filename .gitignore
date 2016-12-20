@@ -4,3 +4,4 @@ valgrind.txt
 *.dSYM
 fat_test
 dos_scandisk
+output.txt
